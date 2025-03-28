@@ -67,6 +67,8 @@ class ReadAloudWindow(Gtk.ApplicationWindow):
         self.direct_reader = DirectReader(self.settings)
         
         # Apply settings to TTS engine
+        if self.settings.get("engine_id"):
+            self.tts_engine.set_engine(self.settings["engine_id"])
         if self.settings.get("voice_id"):
             self.tts_engine.set_voice(self.settings["voice_id"])
         if self.settings.get("rate"):
@@ -160,277 +162,40 @@ class ReadAloudWindow(Gtk.ApplicationWindow):
         
     def on_settings_button_clicked(self, button):
         """Open settings dialog when settings button is clicked"""
-        # Create dialog as a separate window (not modal)
-        dialog = Gtk.Window(title="Settings")
-        dialog.set_transient_for(self)  # Set parent but not modal
-        dialog.set_default_size(350, 400)
-        dialog.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
-        dialog.set_destroy_with_parent(True)
+        # Create settings dialog using the SettingsDialog class
+        dialog = SettingsDialog(self, self.config_path)
         
-        # Main box for content
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        main_box.set_border_width(10)
-        dialog.add(main_box)
-        
-        # Create notebook for tabs
-        notebook = Gtk.Notebook()
-        main_box.pack_start(notebook, True, True, 0)
-        
-        # Voice settings tab
-        voice_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        voice_box.set_border_width(10)
-        notebook.append_page(voice_box, Gtk.Label(label="Voice"))
-        
-        # Voice selection
-        voice_label = Gtk.Label(label="Voice:", halign=Gtk.Align.START)
-        voice_box.pack_start(voice_label, False, False, 0)
-        
-        # Voice combo box
-        voice_combo = Gtk.ComboBoxText()
-        
-        # Populate voice combo
-        voices = self.tts_engine.get_available_voices()
-        selected_idx = 0
-        current_voice_id = self.settings.get("voice_id")
-        for i, (voice_id, voice_name) in enumerate(voices):
-            voice_combo.append(voice_id, voice_name)
-            if voice_id == current_voice_id:
-                selected_idx = i
+        # Connect response signal to handle settings changes
+        def on_response(dialog, response_id):
+            if response_id in (Gtk.ResponseType.OK, Gtk.ResponseType.APPLY):
+                # Get settings from dialog
+                new_settings = dialog.get_settings()
                 
-        # Set the active voice
-        voice_combo.set_active(selected_idx)
-        voice_box.pack_start(voice_combo, False, False, 0)
-        
-        # Separator
-        separator1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        voice_box.pack_start(separator1, False, False, 5)
-        
-        # Rate control
-        rate_label = Gtk.Label(label="Rate:", halign=Gtk.Align.START)
-        voice_box.pack_start(rate_label, False, False, 0)
-        
-        rate_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 50, 300, 10)
-        rate_scale.set_value(self.settings.get("rate", 150))
-        voice_box.pack_start(rate_scale, False, False, 0)
-        
-        # Volume control
-        volume_label = Gtk.Label(label="Volume:", halign=Gtk.Align.START)
-        voice_box.pack_start(volume_label, False, False, 0)
-        
-        volume_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
-        volume_scale.set_value(self.settings.get("volume", 100))
-        voice_box.pack_start(volume_scale, False, False, 0)
-        
-        # Sample text to test voice
-        sample_label = Gtk.Label(label="Sample text:", halign=Gtk.Align.START)
-        voice_box.pack_start(sample_label, False, False, 0)
-        
-        sample_entry = Gtk.Entry()
-        sample_entry.set_text("This is a longer sample of the selected voice. You can adjust the volume and rate while this text is being spoken to hear the changes in real-time.")
-        voice_box.pack_start(sample_entry, False, False, 0)
-        
-        # Help text for volume adjustment
-        volume_help = Gtk.Label()
-        volume_help.set_markup("<i>Adjust volume slider during playback to hear immediate changes</i>")
-        volume_help.set_halign(Gtk.Align.START)
-        voice_box.pack_start(volume_help, False, False, 0)
-        
-        # Sample buttons container
-        sample_buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        voice_box.pack_start(sample_buttons_box, False, False, 0)
-        
-        # Play Sample button
-        sample_button = Gtk.Button(label="Play Sample")
-        sample_button.connect("clicked", lambda w: self._play_sample_text(sample_entry.get_text()))
-        sample_buttons_box.pack_start(sample_button, False, False, 0)
-        
-        # Stop Sample button
-        stop_sample_button = Gtk.Button(label="Stop")
-        stop_sample_button.connect("clicked", lambda w: self.tts_engine.stop())
-        sample_buttons_box.pack_start(stop_sample_button, False, False, 0)
-        
-        # Advanced options container
-        advanced_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        voice_box.pack_start(advanced_box, False, False, 10)
-        
-        # Restart Engine button - can help with volume control on some systems
-        restart_engine_button = Gtk.Button(label="Restart Engine")
-        restart_engine_button.set_tooltip_text("Restart TTS engine - can help fix volume control issues")
-        restart_engine_button.connect("clicked", self.on_restart_engine_clicked)
-        advanced_box.pack_start(restart_engine_button, False, False, 0)
-        
-        # Debug Engine button
-        debug_button = Gtk.Button(label="Debug Engine")
-        debug_button.set_tooltip_text("Show TTS engine debug information")
-        debug_button.connect("clicked", self.on_debug_engine_clicked)
-        advanced_box.pack_start(debug_button, False, False, 0)
-        
-        # Shortcuts tab
-        shortcuts_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        shortcuts_box.set_border_width(10)
-        notebook.append_page(shortcuts_box, Gtk.Label(label="Shortcuts"))
-        
-        # Read Selection shortcut
-        read_shortcut_label = Gtk.Label(label="Read Selection:", halign=Gtk.Align.START)
-        shortcuts_box.pack_start(read_shortcut_label, False, False, 0)
-        
-        read_shortcut_entry = Gtk.Entry()
-        read_shortcut_entry.set_text(self.settings.get("shortcut_read_selection", "<Primary><Alt>r"))
-        shortcuts_box.pack_start(read_shortcut_entry, False, False, 0)
-        
-        # Capture Selection shortcut
-        capture_shortcut_label = Gtk.Label(label="Capture Selection:", halign=Gtk.Align.START)
-        shortcuts_box.pack_start(capture_shortcut_label, False, False, 0)
-        
-        capture_shortcut_entry = Gtk.Entry()
-        capture_shortcut_entry.set_text(self.settings.get("shortcut_capture_selection", "<Primary><Alt>s"))
-        shortcuts_box.pack_start(capture_shortcut_entry, False, False, 0)
-        
-        # Play/Pause shortcut
-        play_shortcut_label = Gtk.Label(label="Play/Pause:", halign=Gtk.Align.START)
-        shortcuts_box.pack_start(play_shortcut_label, False, False, 0)
-        
-        play_shortcut_entry = Gtk.Entry()
-        play_shortcut_entry.set_text(self.settings.get("shortcut_play_pause", "<Primary><Alt>p"))
-        shortcuts_box.pack_start(play_shortcut_entry, False, False, 0)
-        
-        # Behavior tab
-        behavior_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        behavior_box.set_border_width(10)
-        notebook.append_page(behavior_box, Gtk.Label(label="Behavior"))
-        
-        # Highlight text while reading
-        highlight_check = Gtk.CheckButton(label="Highlight text while reading")
-        highlight_check.set_active(self.settings.get("highlight_text", True))
-        behavior_box.pack_start(highlight_check, False, False, 0)
-        
-        # Minimize to tray when closed
-        minimize_check = Gtk.CheckButton(label="Minimize to system tray when closed")
-        minimize_check.set_active(self.settings.get("minimize_to_tray", True))
-        behavior_box.pack_start(minimize_check, False, False, 0)
-        
-        # Read immediately after capturing
-        read_immediately_check = Gtk.CheckButton(label="Read immediately after capturing text")
-        read_immediately_check.set_active(self.settings.get("read_immediately", False))
-        behavior_box.pack_start(read_immediately_check, False, False, 0)
-        
-        # Show mini controller
-        mini_controller_check = Gtk.CheckButton(label="Show mini controller for direct reading")
-        mini_controller_check.set_active(self.settings.get("show_mini_controller", True))
-        behavior_box.pack_start(mini_controller_check, False, False, 0)
-        
-        # About tab (moved from hamburger menu)
-        about_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        about_box.set_border_width(10)
-        notebook.append_page(about_box, Gtk.Label(label="About"))
-        
-        # Logo
-        logo = Gtk.Image.new_from_icon_name("accessories-text-editor", Gtk.IconSize.DIALOG)
-        about_box.pack_start(logo, False, False, 10)
-        
-        # App name
-        app_name = Gtk.Label()
-        app_name.set_markup("<b><span size='x-large'>Read Aloud</span></b>")
-        about_box.pack_start(app_name, False, False, 5)
-        
-        # Version
-        version_label = Gtk.Label(label="Version 0.2.0")
-        about_box.pack_start(version_label, False, False, 5)
-        
-        # Description
-        desc_label = Gtk.Label(label="A Linux application that provides text-to-speech\nfunctionality similar to MacOS's Read Aloud feature.")
-        desc_label.set_justify(Gtk.Justification.CENTER)
-        about_box.pack_start(desc_label, False, False, 5)
-        
-        # Authors
-        authors_label = Gtk.Label()
-        authors_label.set_markup("<b>Read Aloud Team</b>")
-        about_box.pack_start(authors_label, False, False, 5)
-        
-        # Button area
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        button_box.set_halign(Gtk.Align.FILL)  # Make the box fill the width
-        main_box.pack_start(button_box, False, False, 0)
-        
-        # Quit button (moved from hamburger menu)
-        quit_button = Gtk.Button(label="Quit Application")
-        quit_button.connect("clicked", self.on_quit_clicked)
-        button_box.pack_start(quit_button, False, False, 0)  # Pack at start (left)
-        
-        # Spacer to push buttons to opposite sides
-        spacer = Gtk.Label("")
-        spacer.set_hexpand(True)
-        button_box.pack_start(spacer, True, True, 0)
-        
-        # Close button
-        close_button = Gtk.Button(label="Close")
-        close_button.connect("clicked", lambda w: dialog.destroy())
-        button_box.pack_end(close_button, False, False, 0)
-        
-        # Apply button
-        apply_button = Gtk.Button(label="Apply")
-        apply_button.connect("clicked", lambda w: self._apply_settings(dialog, voice_combo, rate_scale, volume_scale, 
-                                                                      read_shortcut_entry, capture_shortcut_entry, 
-                                                                      play_shortcut_entry, highlight_check, 
-                                                                      minimize_check, read_immediately_check, 
-                                                                      mini_controller_check))
-        button_box.pack_end(apply_button, False, False, 0)
-        
-        # Setup voice change handler
-        def on_voice_changed(combo):
-            voice_id = combo.get_active_id()
-            if voice_id:
-                self.tts_engine.set_voice(voice_id)
-                self.settings["voice_id"] = voice_id
+                # Update our settings
+                self.settings.update(new_settings)
+                
+                # Apply TTS settings
+                if self.settings.get("engine_id"):
+                    self.tts_engine.set_engine(self.settings["engine_id"])
+                if self.settings.get("voice_id"):
+                    self.tts_engine.set_voice(self.settings["voice_id"], self.settings.get("engine_id"))
+                if self.settings.get("rate"):
+                    self.tts_engine.set_rate(self.settings["rate"])
+                    
+                # Save settings
                 self._save_settings()
+                
+                # Update direct reader settings
+                self.direct_reader.update_settings(self.settings)
+                
+                # Update accelerators for shortcuts
+                self._setup_global_hotkeys()
         
-        # Connect signals
-        voice_combo.connect("changed", on_voice_changed)
-        rate_scale.connect("value-changed", self.on_rate_changed)
-        volume_scale.connect("value-changed", self.on_volume_changed)
+        # Connect the signal
+        dialog.connect("response", on_response)
         
-        # Ensure window can be closed with escape key
-        dialog.connect("key-press-event", lambda w, e: w.destroy() if e.keyval == Gdk.KEY_Escape else None)
-        
-        # Show all
-        dialog.show_all()
-        
-    def _apply_settings(self, dialog, voice_combo, rate_scale, volume_scale, 
-                       read_shortcut_entry, capture_shortcut_entry, 
-                       play_shortcut_entry, highlight_check, 
-                       minimize_check, read_immediately_check, 
-                       mini_controller_check):
-        """Apply settings from the dialog"""
-        # Save voice setting
-        voice_id = voice_combo.get_active_id()
-        if voice_id:
-            self.settings["voice_id"] = voice_id
-            self.tts_engine.set_voice(voice_id)
-        
-        # Save shortcut settings
-        self.settings["shortcut_read_selection"] = read_shortcut_entry.get_text()
-        self.settings["shortcut_capture_selection"] = capture_shortcut_entry.get_text()
-        self.settings["shortcut_play_pause"] = play_shortcut_entry.get_text()
-        
-        # Save behavior settings
-        self.settings["highlight_text"] = highlight_check.get_active()
-        self.settings["minimize_to_tray"] = minimize_check.get_active()
-        self.settings["read_immediately"] = read_immediately_check.get_active()
-        self.settings["show_mini_controller"] = mini_controller_check.get_active()
-        
-        # Save settings to file
-        self._save_settings()
-        
-        # Update direct reader settings
-        self.direct_reader.update_settings(self.settings)
-        
-        # Update accelerators
-        self._setup_global_hotkeys()
-        
-        # Give feedback that settings were applied
-        dialog.set_title("Settings (Applied)")
-        # Reset title after a short delay
-        GLib.timeout_add(1500, lambda: dialog.set_title("Settings"))
+        # Show the dialog
+        dialog.run()
         
     def _build_ui(self):
         """Build the main user interface"""
@@ -633,9 +398,14 @@ class ReadAloudWindow(Gtk.ApplicationWindow):
     def _play_sample_text(self, text):
         """Play sample text with current voice, rate and volume settings"""
         # Make sure we're using the latest settings
+        engine_id = self.settings.get("engine_id")
         voice_id = self.settings.get("voice_id")
+        
+        if engine_id:
+            self.tts_engine.set_engine(engine_id)
+            
         if voice_id:
-            self.tts_engine.set_voice(voice_id)
+            self.tts_engine.set_voice(voice_id, engine_id)
             
         rate = self.settings.get("rate", 150)
         self.tts_engine.set_rate(rate)
@@ -644,7 +414,7 @@ class ReadAloudWindow(Gtk.ApplicationWindow):
         self.tts_engine.set_volume(volume)
         
         # Log that we're about to play sample
-        logging.debug(f"Playing sample with voice={voice_id}, rate={rate}, volume={volume}")
+        logging.debug(f"Playing sample with engine={engine_id}, voice={voice_id}, rate={rate}, volume={volume}")
         
         # Speak the text
         self.tts_engine.speak(text)

@@ -1,6 +1,6 @@
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gtk, Gdk, GLib, GObject
 
 import logging
 import json
@@ -8,20 +8,19 @@ import os
 
 from ..tts.tts_engine import TTSEngine
 
-class SettingsDialog(Gtk.Dialog):
+class SettingsDialog(Gtk.Window):
     """Settings dialog for Read Aloud application"""
     
+    # Define custom signals
+    __gsignals__ = {
+        'response': (GObject.SignalFlags.RUN_FIRST, None, (int,))
+    }
+    
     def __init__(self, parent, config_path=None):
-        super().__init__(
-            title="Read Aloud Settings",
-            parent=parent,
-            flags=Gtk.DialogFlags.MODAL,
-            buttons=(
-                Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                Gtk.STOCK_SAVE, Gtk.ResponseType.OK
-            )
-        )
+        super().__init__(title="Settings")
         
+        self.set_transient_for(parent)  # Set parent but not modal
+        self.set_destroy_with_parent(True)
         self.set_default_size(400, 350)
         self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
         
@@ -42,6 +41,19 @@ class SettingsDialog(Gtk.Dialog):
         # Create UI
         self._build_ui()
         
+        # Connect delete event to hide window instead of destroy
+        self.connect("delete-event", self.on_delete_event)
+        
+    def on_delete_event(self, widget, event):
+        """Hide window instead of destroying it when the close button is clicked"""
+        self.hide()
+        return True  # Stop propagation (prevent destroy)
+        
+    def run(self):
+        """Show the dialog and return the response"""
+        self.show_all()
+        return Gtk.ResponseType.NONE  # For compatibility with Dialog's run method
+    
     def _load_settings(self):
         """Load settings from file"""
         default_settings = {
@@ -79,16 +91,17 @@ class SettingsDialog(Gtk.Dialog):
             
     def _build_ui(self):
         """Build the settings dialog UI"""
-        content_area = self.get_content_area()
-        content_area.set_spacing(10)
-        content_area.set_margin_top(10)
-        content_area.set_margin_bottom(10)
-        content_area.set_margin_start(10)
-        content_area.set_margin_end(10)
+        # Main container
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box.set_margin_top(10)
+        main_box.set_margin_bottom(10)
+        main_box.set_margin_start(10)
+        main_box.set_margin_end(10)
+        self.add(main_box)
         
         # Create notebook (tabbed interface)
         notebook = Gtk.Notebook()
-        content_area.pack_start(notebook, True, True, 0)
+        main_box.pack_start(notebook, True, True, 0)
         
         # Voice settings tab
         voice_grid = Gtk.Grid()
@@ -99,29 +112,41 @@ class SettingsDialog(Gtk.Dialog):
         voice_grid.set_margin_start(10)
         voice_grid.set_margin_end(10)
         
+        # Engine selection
+        engine_label = Gtk.Label(label="TTS Engine:")
+        engine_label.set_halign(Gtk.Align.START)
+        voice_grid.attach(engine_label, 0, 0, 1, 1)
+        
+        self.engine_combo = Gtk.ComboBoxText()
+        # Populate engines
+        engines = self.tts_engine.get_available_engines()
+        active_engine_idx = 0
+        for idx, (engine_id, engine_name) in enumerate(engines):
+            self.engine_combo.append(engine_id, engine_name)
+            if engine_id == self.settings.get("engine_id", self.tts_engine.active_engine):
+                active_engine_idx = idx
+                
+        if engines:
+            self.engine_combo.set_active(active_engine_idx)
+            # Connect signal for changing voices when engine changes
+            self.engine_combo.connect("changed", self._on_engine_changed)
+            
+        voice_grid.attach(self.engine_combo, 1, 0, 1, 1)
+        
         # Voice selection
         voice_label = Gtk.Label(label="Voice:")
         voice_label.set_halign(Gtk.Align.START)
-        voice_grid.attach(voice_label, 0, 0, 1, 1)
+        voice_grid.attach(voice_label, 0, 1, 1, 1)
         
         self.voice_combo = Gtk.ComboBoxText()
-        # Populate voices
-        voices = self.tts_engine.get_available_voices()
-        active_idx = 0
-        for idx, (voice_id, voice_name) in enumerate(voices):
-            self.voice_combo.append(voice_id, voice_name)
-            if voice_id == self.settings["voice_id"]:
-                active_idx = idx
-                
-        if voices:
-            self.voice_combo.set_active(active_idx)
-            
-        voice_grid.attach(self.voice_combo, 1, 0, 1, 1)
+        # We'll populate this based on the selected engine
+        self._populate_voices_for_current_engine()
+        voice_grid.attach(self.voice_combo, 1, 1, 1, 1)
         
         # Rate control
         rate_label = Gtk.Label(label="Rate:")
         rate_label.set_halign(Gtk.Align.START)
-        voice_grid.attach(rate_label, 0, 1, 1, 1)
+        voice_grid.attach(rate_label, 0, 2, 1, 1)
         
         rate_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.rate_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 50, 300, 10)
@@ -134,12 +159,12 @@ class SettingsDialog(Gtk.Dialog):
         self.rate_scale.add_mark(300, Gtk.PositionType.BOTTOM, "Fast")
         
         rate_box.pack_start(self.rate_scale, True, True, 0)
-        voice_grid.attach(rate_box, 1, 1, 1, 1)
+        voice_grid.attach(rate_box, 1, 2, 1, 1)
         
         # Sample button
         sample_button = Gtk.Button(label="Play Sample")
         sample_button.connect("clicked", self._on_sample_clicked)
-        voice_grid.attach(sample_button, 0, 2, 2, 1)
+        voice_grid.attach(sample_button, 0, 3, 2, 1)
         
         # Add the Voice tab
         notebook.append_page(voice_grid, Gtk.Label(label="Voice"))
@@ -218,23 +243,75 @@ class SettingsDialog(Gtk.Dialog):
         
         notebook.append_page(behavior_grid, Gtk.Label(label="Behavior"))
         
-        # Show all widgets
-        self.show_all()
+        # Button box
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        button_box.set_halign(Gtk.Align.END)
+        main_box.pack_start(button_box, False, False, 0)
+        
+        # Close button
+        close_button = Gtk.Button(label="Close")
+        close_button.connect("clicked", self.on_close_clicked)
+        button_box.pack_end(close_button, False, False, 0)
+        
+        # Apply button
+        apply_button = Gtk.Button(label="Apply")
+        apply_button.connect("clicked", self.on_apply_clicked)
+        button_box.pack_end(apply_button, False, False, 0)
+        
+        # Save button
+        save_button = Gtk.Button(label="Save")
+        save_button.connect("clicked", self.on_save_clicked)
+        button_box.pack_end(save_button, False, False, 0)
+        
+    def _on_engine_changed(self, combo):
+        """Handle engine selection change"""
+        engine_id = combo.get_active_id()
+        if engine_id:
+            logging.debug(f"Engine changed to {engine_id}")
+            # Update voices for this engine
+            self._populate_voices_for_current_engine()
+    
+    def _populate_voices_for_current_engine(self):
+        """Populate voice combo box based on currently selected engine"""
+        engine_id = self.engine_combo.get_active_id()
+        if not engine_id:
+            return
+            
+        # Clear current voices
+        self.voice_combo.remove_all()
+        
+        # Get voices for selected engine
+        voices = self.tts_engine.get_voices_for_engine(engine_id)
+        
+        # Find current voice ID from settings
+        current_voice_id = self.settings.get("voice_id")
+        
+        active_idx = 0
+        for idx, (voice_id, voice_name) in enumerate(voices):
+            self.voice_combo.append(voice_id, voice_name)
+            if voice_id == current_voice_id:
+                active_idx = idx
+                
+        if voices:
+            self.voice_combo.set_active(active_idx)
         
     def _on_sample_clicked(self, button):
         """Play a sample of the selected voice"""
+        engine_id = self.engine_combo.get_active_id()
         voice_id = self.voice_combo.get_active_id()
         rate = int(self.rate_scale.get_value())
         
-        if voice_id:
+        if engine_id and voice_id:
             # Create a temporary engine for the sample
             temp_engine = TTSEngine()
-            temp_engine.set_voice(voice_id)
+            temp_engine.set_engine(engine_id)
+            temp_engine.set_voice(voice_id, engine_id)
             temp_engine.set_rate(rate)
             temp_engine.speak("This is a sample of the selected voice.")
             
     def get_settings(self):
         """Get current settings from dialog"""
+        self.settings["engine_id"] = self.engine_combo.get_active_id()
         self.settings["voice_id"] = self.voice_combo.get_active_id()
         self.settings["rate"] = int(self.rate_scale.get_value())
         self.settings["shortcut_read_selection"] = self.read_shortcut_entry.get_text()
@@ -246,7 +323,28 @@ class SettingsDialog(Gtk.Dialog):
         
         return self.settings
         
-    def save(self):
-        """Save settings"""
-        self.get_settings()
-        return self._save_settings() 
+    def on_close_clicked(self, button):
+        """Close the dialog without saving"""
+        self.hide()
+        
+    def on_apply_clicked(self, button):
+        """Apply settings without closing the dialog"""
+        self.response = Gtk.ResponseType.APPLY
+        # Signal to the main app to apply changes
+        self.emit("response", Gtk.ResponseType.APPLY)
+        
+    def on_save_clicked(self, button):
+        """Save settings and close the dialog"""
+        self.response = Gtk.ResponseType.OK
+        # Signal to the main app to save changes
+        self.emit("response", Gtk.ResponseType.OK)
+        self.hide()
+        
+    def destroy(self):
+        """Ensure proper cleanup when the dialog is destroyed"""
+        if hasattr(self, 'tts_engine'):
+            try:
+                self.tts_engine.cleanup()
+            except:
+                pass
+        super().destroy() 

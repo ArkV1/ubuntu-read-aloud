@@ -24,8 +24,10 @@ class DirectReader:
     def _apply_settings(self):
         """Apply settings to the TTS engine"""
         if self.settings:
+            if self.settings.get("engine_id"):
+                self.tts_engine.set_engine(self.settings["engine_id"])
             if self.settings.get("voice_id"):
-                self.tts_engine.set_voice(self.settings["voice_id"])
+                self.tts_engine.set_voice(self.settings["voice_id"], self.settings.get("engine_id"))
             if self.settings.get("rate"):
                 self.tts_engine.set_rate(self.settings["rate"])
             if self.settings.get("volume"):

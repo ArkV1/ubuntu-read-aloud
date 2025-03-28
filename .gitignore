@@ -43,3 +43,16 @@ ENV/
 *.swp
 *.swo
 .DS_Store 
+
+# Voice model files
+*.onnx
+*.onnx.json
+*.pth
+voice-models/
+piper-voices/
+*.tflite
+*.json.gz
+*_model/
+*-medium.json
+*-high.json
+*-low.json 
