@@ -473,7 +473,33 @@ class TTSEngine:
         
     def is_busy(self):
         """Check if the engine is currently speaking"""
-        return self.is_speaking
+        is_busy = self.is_speaking
+        
+        # Also check if there's a direct speech process running
+        if self.direct_speech_process and self.direct_speech_process.poll() is None:
+            is_busy = True
+            
+        return is_busy
+        
+    def wait_until_done(self, timeout=None):
+        """Wait until speech is completed
+        
+        Args:
+            timeout: Maximum time to wait in seconds. None means wait indefinitely.
+            
+        Returns:
+            True if speech completed, False if timed out
+        """
+        if not self.is_busy():
+            return True
+            
+        start_time = time.time()
+        while self.is_busy():
+            time.sleep(0.1)  # Small sleep to prevent CPU hogging
+            if timeout is not None and (time.time() - start_time) > timeout:
+                return False
+                
+        return True
 
     def restart_engine(self):
         """Restart the engine while preserving settings
@@ -612,6 +638,9 @@ class TTSEngine:
                 if not os.path.exists(model_path) and not model_path.endswith(".onnx"):
                     # Look in standard locations
                     locations = [
+                        # Project models directory
+                        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models", "piper"),
+                        # System locations
                         os.path.expanduser("~/.local/share/piper-tts/piper-voices"),
                         "/usr/local/share/piper-voices",
                         "/usr/share/piper-voices"
@@ -652,6 +681,7 @@ class TTSEngine:
                         stream.close()
                         
                         self.is_speaking = False
+                        logging.debug("Piper speech completed")
                         if callback:
                             callback()
                     except Exception as e:
@@ -707,6 +737,7 @@ class TTSEngine:
                     if self.direct_speech_process:
                         self.direct_speech_process.wait()
                     self.is_speaking = False
+                    logging.debug("Command-line Piper speech completed")
                     if callback:
                         callback()
                 
@@ -856,6 +887,9 @@ class TTSEngine:
         
         # Look in standard voice directories
         voice_dirs = [
+            # Project models directory
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models", "piper"),
+            # System locations
             os.path.expanduser("~/.local/share/piper-tts/piper-voices"),
             "/usr/local/share/piper-voices",
             "/usr/share/piper-voices"

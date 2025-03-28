@@ -201,6 +201,11 @@ class ReaderController(Gtk.Window):
         
         vbox.pack_start(controls_box, True, True, 0)
         
+        # Add a small text indicator for current status
+        self.status_label = Gtk.Label(label="")
+        self.status_label.set_markup("<small>Starting...</small>")
+        vbox.pack_start(self.status_label, False, False, 0)
+        
         # Show all widgets
         self.show_all()
         
@@ -227,6 +232,9 @@ class ReaderController(Gtk.Window):
                 Gtk.Image.new_from_icon_name("media-playback-pause", Gtk.IconSize.BUTTON)
             )
             
+            # Update status
+            self.status_label.set_markup("<small>Reading...</small>")
+            
             # Make sure window is visible
             self.present()
             self.show_all()
@@ -249,6 +257,7 @@ class ReaderController(Gtk.Window):
                     Gtk.Image.new_from_icon_name("media-playback-start", Gtk.IconSize.BUTTON)
                 )
                 logging.debug("Paused reading")
+                self.status_label.set_markup("<small>Paused</small>")
             else:
                 self.tts_engine.resume()
                 self.is_playing = True
@@ -256,6 +265,7 @@ class ReaderController(Gtk.Window):
                     Gtk.Image.new_from_icon_name("media-playback-pause", Gtk.IconSize.BUTTON)
                 )
                 logging.debug("Resumed reading")
+                self.status_label.set_markup("<small>Reading...</small>")
         except Exception as e:
             logging.error(f"Error toggling play/pause: {e}")
             self._update_ui_after_reading()
@@ -267,6 +277,11 @@ class ReaderController(Gtk.Window):
             self.tts_engine.stop()
             self._update_ui_after_reading()
             logging.debug("Stopped reading")
+            self.status_label.set_markup("<small>Stopped</small>")
+            
+            # Automatically close after a short delay when manually stopped
+            GLib.timeout_add(1500, self.destroy)
+            
         except Exception as e:
             logging.error(f"Error stopping: {e}")
             self._update_ui_after_reading()
@@ -296,12 +311,26 @@ class ReaderController(Gtk.Window):
         GLib.idle_add(self._update_ui_after_reading)
         logging.debug("Reading finished")
         
+        # Automatically close the controller after reading is finished
+        # with a short delay to let the user see it's done
+        def auto_close():
+            if not self.is_playing and not self.tts_engine.is_busy():
+                logging.debug("Auto-closing controller after reading finished")
+                self.destroy()
+            return False
+            
+        # Wait 2 seconds before closing
+        GLib.timeout_add(2000, auto_close)
+        
     def _update_ui_after_reading(self):
         """Update UI after reading is finished"""
         self.is_playing = False
         self.play_button.set_image(
             Gtk.Image.new_from_icon_name("media-playback-start", Gtk.IconSize.BUTTON)
         )
+        
+        # Update status label
+        self.status_label.set_markup("<small><b>Done!</b></small>")
         
     def update_text(self, text):
         """Update the text to read"""

@@ -56,3 +56,14 @@ piper-voices/
 *-medium.json
 *-high.json
 *-low.json 
+
+# Models directory - keep structure but ignore model files
+models/**/*.onnx
+models/**/*.onnx.json
+models/**/*.pth
+models/**/*.tflite
+models/**/*.json.gz
+models/**/*.bin
+# Add a .gitkeep to retain the directory structure
+!models/.gitkeep
+!models/*/.gitkeep 
