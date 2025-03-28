@@ -1,0 +1,5 @@
+pyttsx3>=2.90
+PyGObject>=3.42.0
+python-xlib>=0.31
+pyperclip>=1.8.2
+click>=8.1.3 
